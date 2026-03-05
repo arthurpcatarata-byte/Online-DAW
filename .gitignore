@@ -1,0 +1,6 @@
+# Uploaded audio files
+uploads/*
+!uploads/.htaccess
+
+# Zip artifacts
+*.zip

@@ -1,0 +1,4 @@
+# Prevent PHP execution in the uploads directory (security)
+Options -Indexes -ExecCGI
+php_flag engine off
+AddType text/plain .php .php3 .php4 .php5 .phtml .phar
