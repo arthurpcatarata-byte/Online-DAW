@@ -9,10 +9,10 @@ session_start();
 // ── Database Credentials ─────────────────────────────────────
 // Fill in these values from your InfinityFree cPanel
 // (MySQL Databases section)
-define('DB_HOST', 'sql100.infinityfree.com');
+define('DB_HOST', 'sql100.byetcluster.com');
 define('DB_NAME', 'if0_41310365_epiz_12345678_dawdb');
 define('DB_USER', 'if0_41310365');
-define('DB_PASS', '1prcxJl8ByQKP');
+define('DB_PASS', 'lprcxJl8ByQKP');
 
 // ── PDO Connection ────────────────────────────────────────────
 try {
@@ -27,10 +27,10 @@ try {
         ]
     );
 } catch (PDOException $e) {
-    // Hide raw DB errors from users in production
+    // TEMPORARY: show real error for debugging
     die('<div style="font-family:sans-serif;padding:2rem;background:#1a1a2e;color:#ff6b6b;">
         <h2>⚠ Database Connection Error</h2>
-        <p>Could not connect to the database. Please check your <code>config.php</code> credentials.</p>
+        <p>' . htmlspecialchars($e->getMessage()) . '</p>
     </div>');
 }
 

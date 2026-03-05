@@ -142,10 +142,26 @@ $type = strtolower($track['track_type']);
     <?php if ($error):   ?><div class="alert alert-error">⚠️ <?= h($error) ?></div><?php endif; ?>
     <?php if ($success): ?><div class="alert alert-success">✅ <?= $success ?></div><?php endif; ?>
 
-    <!-- ── Timeline ─────────────────────────────────────────── -->
+    <!-- ── Transport Controls ───────────────────────────────── -->
     <?php if (!empty($clips)): ?>
+    <div class="transport-bar">
+        <div class="transport-controls">
+            <button class="transport-btn" id="daw-play"  title="Play">▶</button>
+            <button class="transport-btn" id="daw-pause" title="Pause" disabled>⏸</button>
+            <button class="transport-btn" id="daw-stop"  title="Stop"  disabled>⏹</button>
+        </div>
+        <div class="transport-time" id="daw-time">00:00.00 / <?= formatTime($max_time) ?></div>
+        <div class="transport-load">
+            <div class="transport-load-bar">
+                <div class="transport-load-progress" id="daw-progress"></div>
+            </div>
+            <span class="transport-load-text" id="daw-load-status">Initializing...</span>
+        </div>
+    </div>
+
+    <!-- ── Timeline ─────────────────────────────────────────── -->
     <div class="timeline-container">
-        <div class="timeline-title">📊 Timeline View — total length: <?= formatTime($max_time) ?></div>
+        <div class="timeline-title">📊 Timeline View — total length: <?= formatTime($max_time) ?> &nbsp;·&nbsp; Click timeline to seek</div>
         <div style="overflow-x:auto;">
             <div style="min-width:800px;padding-bottom:.5rem;">
                 <!-- Ruler marks every 5 s -->
@@ -158,13 +174,16 @@ $type = strtolower($track['track_type']);
                     <?php endfor; ?>
                 </div>
                 <!-- Clip bar -->
-                <div class="timeline-track">
+                <div class="timeline-track" id="daw-timeline-track">
+                    <div class="playhead" id="daw-playhead"></div>
                     <?php foreach ($clips as $c):
                         $l = round($c['start_time'] / $max_time * 100, 2);
                         $w = max(round($c['duration']  / $max_time * 100, 2), 0.5);
                     ?>
                     <div class="timeline-clip"
                          style="left:<?= $l ?>%;width:<?= $w ?>%"
+                         data-start="<?= $c['start_time'] ?>"
+                         data-end="<?= $c['start_time'] + $c['duration'] ?>"
                          title="Start: <?= formatTime($c['start_time']) ?> | Duration: <?= formatTime($c['duration']) ?>">
                         #<?= $c['clip_id'] ?>
                     </div>
@@ -293,6 +312,19 @@ $type = strtolower($track['track_type']);
     </div>
 </div>
 
+<!-- Clip data for the DAW player -->
+<script>
+const dawClipData = <?= json_encode(array_map(function($c) {
+    return [
+        'clip_id'    => $c['clip_id'],
+        'start_time' => (float)$c['start_time'],
+        'duration'   => (float)$c['duration'],
+        'file_path'  => $c['file_path'],
+    ];
+}, $clips)) ?>;
+const dawMaxTime = <?= json_encode((float)$max_time) ?>;
+</script>
 <script src="js/main.js"></script>
+<script src="js/player.js"></script>
 </body>
 </html>

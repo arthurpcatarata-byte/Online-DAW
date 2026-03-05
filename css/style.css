@@ -503,6 +503,103 @@ nav {
 /* ── Audio Player ──────────────────────────────────────────── */
 .audio-player { width: 220px; max-width: 100%; margin-top: .3rem; accent-color: var(--accent); }
 
+/* ── Transport Bar ─────────────────────────────────────────── */
+.transport-bar {
+    background: var(--bg-card);
+    border: 1px solid var(--border-bright);
+    border-radius: var(--radius);
+    padding: .9rem 1.2rem;
+    margin-bottom: 1rem;
+    display: flex;
+    align-items: center;
+    gap: 1.2rem;
+    flex-wrap: wrap;
+}
+.transport-controls { display: flex; gap: .4rem; }
+.transport-btn {
+    width: 42px; height: 42px;
+    border-radius: 50%;
+    border: 1px solid var(--border-bright);
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    font-size: 1.1rem;
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    transition: all .2s;
+}
+.transport-btn:hover:not(:disabled) {
+    background: var(--accent);
+    border-color: var(--accent-light);
+    box-shadow: 0 0 15px var(--accent-glow);
+    transform: scale(1.08);
+}
+.transport-btn:disabled { opacity: .35; cursor: not-allowed; }
+.transport-btn.transport-active {
+    background: var(--accent);
+    border-color: var(--accent-light);
+    box-shadow: 0 0 12px var(--accent-glow);
+}
+.transport-time {
+    font-family: 'Courier New', monospace;
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: var(--cyan);
+    background: var(--bg-primary);
+    padding: .4rem .8rem;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border);
+    letter-spacing: 1px;
+    min-width: 185px;
+    text-align: center;
+}
+.transport-load { flex: 1; min-width: 140px; }
+.transport-load-bar {
+    height: 4px;
+    background: var(--bg-primary);
+    border-radius: 2px;
+    overflow: hidden;
+    margin-bottom: .3rem;
+}
+.transport-load-progress {
+    height: 100%;
+    width: 0%;
+    background: linear-gradient(90deg, var(--accent), var(--cyan));
+    border-radius: 2px;
+    transition: width .3s;
+}
+.transport-load-text { font-size: .7rem; color: var(--text-muted); }
+
+/* ── Playhead ──────────────────────────────────────────────── */
+.playhead {
+    position: absolute;
+    top: 0; bottom: 0;
+    left: 0;
+    width: 2px;
+    background: #ff4444;
+    z-index: 10;
+    pointer-events: none;
+    transition: left 0.05s linear;
+    box-shadow: 0 0 6px rgba(255,68,68,.7);
+}
+.playhead::before {
+    content: '';
+    position: absolute;
+    top: -5px;
+    left: -4px;
+    width: 0; height: 0;
+    border-left: 5px solid transparent;
+    border-right: 5px solid transparent;
+    border-top: 6px solid #ff4444;
+}
+
+/* ── Active clip glow ──────────────────────────────────────── */
+.timeline-clip.clip-active {
+    background: linear-gradient(135deg, rgba(124,58,237,.9), rgba(6,182,212,.85)) !important;
+    box-shadow: 0 0 12px rgba(124,58,237,.6), 0 0 4px rgba(6,182,212,.4);
+    border-color: var(--cyan) !important;
+    z-index: 5;
+}
+
 /* ── Modal ─────────────────────────────────────────────────── */
 .modal-overlay {
     display: none;
