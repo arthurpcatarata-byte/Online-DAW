@@ -23,11 +23,18 @@ let dragOffsetPct= 0;
 let ctxTrackId    = null;
 let ctxStartTime  = 0;
 
+// Copy-paste state
+let copiedClip    = null;   // { clip_id, duration, file_path, track_id, track_type }
+let selectedClipEl = null;  // currently selected clip DOM element
+
 // ── Init ──────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
     initAudio();
     bindTransport();
     bindGridRightClick();
+    bindClipContextMenu();
+    bindKeyboardShortcuts();
+    bindDeselect();
     syncScroll();
 });
 
@@ -287,7 +294,7 @@ function arrDeleteClip(clipId, el) {
         });
 }
 
-// ── Right-click to add sample ─────────────────────────────────
+// ── Right-click to add sample / paste ───────────────────────────
 function bindGridRightClick() {
     document.querySelectorAll('.arr-row').forEach(row => {
         row.addEventListener('contextmenu', e => {
@@ -297,14 +304,22 @@ function bindGridRightClick() {
             const pct      = (e.clientX - gridRect.left) / gridRect.width;
             const startSec = Math.round(Math.max(0, pct * arrMaxTime) * 4) / 4;
 
-            ctxTrackId  = trackId;
+            ctxTrackId   = trackId;
             ctxStartTime = startSec;
 
-            document.getElementById('sample-start').value = startSec.toFixed(2);
-            document.getElementById('sample-dur').value   = '4.00';
-            document.getElementById('sampleFileDisplay').textContent = '📎 Click to select audio file';
-            document.getElementById('sampleFile').value  = '';
-            document.getElementById('addSampleModal').classList.add('active');
+            const items = [
+                { label: '🎵 Add Sample Here', action: () => {
+                    document.getElementById('sample-start').value = startSec.toFixed(2);
+                    document.getElementById('sample-dur').value   = '4.00';
+                    document.getElementById('sampleFileDisplay').textContent = '📎 Click to select audio file';
+                    document.getElementById('sampleFile').value  = '';
+                    document.getElementById('addSampleModal').classList.add('active');
+                }},
+            ];
+            if (copiedClip) {
+                items.push({ label: '📋 Paste Clip Here', action: () => arrPasteClip(trackId, startSec) });
+            }
+            showCtxMenu(e.clientX, e.clientY, items);
         });
     });
 }
@@ -385,6 +400,7 @@ function addClipToDOM(data) {
         </div>`;
     div.addEventListener('dragstart', arrOnDragStart);
     div.addEventListener('dblclick', () => arrDeleteClip(data.clip_id, div));
+    div.addEventListener('click', e => { e.stopPropagation(); arrSelectClip(div); });
     row.appendChild(div);
 
     // Re-bind right-click for new row state
@@ -398,6 +414,183 @@ function addClipToDOM(data) {
         document.getElementById('sample-dur').value   = '4.00';
         document.getElementById('addSampleModal').classList.add('active');
     });
+}
+
+// ── Copy / Paste ──────────────────────────────────────────────
+function arrSelectClip(el) {
+    if (selectedClipEl && selectedClipEl !== el) {
+        selectedClipEl.classList.remove('arr-clip-selected');
+    }
+    if (selectedClipEl === el) {
+        selectedClipEl.classList.remove('arr-clip-selected');
+        selectedClipEl = null;
+        return;
+    }
+    selectedClipEl = el;
+    el.classList.add('arr-clip-selected');
+}
+
+function arrCopyClip(clipId) {
+    let found = null, trackFound = null;
+    arrData.forEach(t => {
+        const c = t.clips.find(c => c.clip_id === clipId);
+        if (c) { found = c; trackFound = t; }
+    });
+    if (!found) return;
+    copiedClip = {
+        clip_id:    found.clip_id,
+        duration:   found.duration,
+        file_path:  found.file_path,
+        track_id:   trackFound.track_id,
+        track_type: trackFound.track_type,
+    };
+    showToast('📋 Clip copied — Ctrl+V to paste, or right-click a row');
+}
+
+async function arrPasteClip(trackId, startTime) {
+    if (!copiedClip) { showToast('Nothing to paste — copy a clip first'); return; }
+    const fd = new FormData();
+    fd.append('track_id',   trackId);
+    fd.append('start_time', startTime);
+    fd.append('duration',   copiedClip.duration);
+    if (copiedClip.file_path) fd.append('existing_file_path', copiedClip.file_path);
+    try {
+        const res  = await fetch('api/add_clip.php', { method: 'POST', body: fd });
+        const data = await res.json();
+        if (data.ok) {
+            addClipToDOM(data);
+            const track = arrData.find(t => t.track_id === data.track_id);
+            if (track) track.clips.push({
+                clip_id:    data.clip_id,
+                start_time: data.start_time,
+                duration:   data.duration,
+                file_path:  data.file_path,
+            });
+            // Reuse decoded audio buffer if the file path is the same
+            if (data.file_path && audioCtx) {
+                const reuseBuf = (copiedClip.file_path === data.file_path)
+                    ? buffers.get(copiedClip.clip_id) : null;
+                if (reuseBuf) {
+                    buffers.set(data.clip_id, reuseBuf);
+                } else {
+                    fetch(data.file_path)
+                        .then(r => r.arrayBuffer())
+                        .then(ab => audioCtx.decodeAudioData(ab))
+                        .then(buf => buffers.set(data.clip_id, buf))
+                        .catch(() => {});
+                }
+            }
+            showToast('✅ Clip pasted');
+        } else {
+            alert('Paste failed: ' + (data.error || 'Unknown error'));
+        }
+    } catch(e) {
+        console.warn('Paste error:', e);
+    }
+}
+
+// ── Clip right-click context menu (capture phase) ─────────────
+function bindClipContextMenu() {
+    document.getElementById('arr-grid')?.addEventListener('contextmenu', e => {
+        const clip = e.target.closest('.arr-clip');
+        if (!clip) return;
+        e.preventDefault();
+        e.stopPropagation(); // prevent row's contextmenu from also firing
+        arrSelectClip(clip);
+        const clipId = parseInt(clip.dataset.clip);
+        showCtxMenu(e.clientX, e.clientY, [
+            { label: '📋 Copy Clip',   action: () => arrCopyClip(clipId) },
+            'separator',
+            { label: '🗑 Delete Clip', action: () => arrDeleteClip(clipId, clip) },
+        ]);
+    }, true); // capture phase — fires before row handler
+}
+
+// ── Keyboard shortcuts: Ctrl+C / Ctrl+V ───────────────────────
+function bindKeyboardShortcuts() {
+    document.addEventListener('keydown', e => {
+        const tag = e.target.tagName;
+        if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+        if (e.ctrlKey && e.key === 'c') {
+            if (selectedClipEl) {
+                e.preventDefault();
+                arrCopyClip(parseInt(selectedClipEl.dataset.clip));
+            }
+        }
+        if (e.ctrlKey && e.key === 'v') {
+            if (copiedClip) {
+                e.preventDefault();
+                const startTime = Math.round(pausedAt * 4) / 4;
+                arrPasteClip(copiedClip.track_id, startTime);
+            }
+        }
+    });
+}
+
+// ── Click away to deselect + hide context menu ────────────────
+function bindDeselect() {
+    document.addEventListener('click', e => {
+        if (!e.target.closest('.arr-ctx-menu')) hideCtxMenu();
+        if (!e.target.closest('.arr-clip') && selectedClipEl) {
+            selectedClipEl.classList.remove('arr-clip-selected');
+            selectedClipEl = null;
+        }
+    });
+    document.addEventListener('keydown', e => {
+        if (e.key === 'Escape') hideCtxMenu();
+    });
+}
+
+// ── Context menu UI ───────────────────────────────────────────
+function showCtxMenu(x, y, items) {
+    let menu = document.getElementById('arr-ctx-menu');
+    if (!menu) {
+        menu = document.createElement('div');
+        menu.id = 'arr-ctx-menu';
+        menu.className = 'arr-ctx-menu';
+        document.body.appendChild(menu);
+    }
+    menu.innerHTML = '';
+    items.forEach(item => {
+        if (item === 'separator') {
+            const sep = document.createElement('div');
+            sep.className = 'arr-ctx-sep';
+            menu.appendChild(sep);
+        } else {
+            const btn = document.createElement('button');
+            btn.className   = 'arr-ctx-item';
+            btn.textContent = item.label;
+            btn.addEventListener('click', () => { hideCtxMenu(); item.action(); });
+            menu.appendChild(btn);
+        }
+    });
+    // Position and clamp to viewport
+    menu.style.left = x + 'px';
+    menu.style.top  = y + 'px';
+    menu.style.visibility = 'hidden';
+    menu.classList.add('visible');
+    const rect = menu.getBoundingClientRect();
+    if (x + rect.width  > window.innerWidth)  menu.style.left = (x - rect.width)  + 'px';
+    if (y + rect.height > window.innerHeight) menu.style.top  = (y - rect.height) + 'px';
+    menu.style.visibility = '';
+}
+
+function hideCtxMenu() {
+    const menu = document.getElementById('arr-ctx-menu');
+    if (menu) menu.classList.remove('visible');
+}
+
+// ── Toast Notification ────────────────────────────────────────
+function showToast(msg) {
+    const t = document.createElement('div');
+    t.className   = 'arr-toast';
+    t.textContent = msg;
+    document.body.appendChild(t);
+    requestAnimationFrame(() => t.classList.add('arr-toast-visible'));
+    setTimeout(() => {
+        t.classList.remove('arr-toast-visible');
+        setTimeout(() => t.remove(), 400);
+    }, 2500);
 }
 
 // ── Sync sidebar & grid vertical scroll ──────────────────────

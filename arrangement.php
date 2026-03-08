@@ -220,6 +220,7 @@ foreach ($tracks as $t) {
                          data-file="<?= h($c['file_path'] ?? '') ?>"
                          title="<?= h(basename($c['file_path'] ?? 'No file')) ?> | <?= formatTime($c['start_time']) ?> – <?= formatTime($c['start_time'] + $c['duration']) ?>"
                          ondragstart="arrOnDragStart(event)"
+                         onclick="arrSelectClip(this)"
                          ondblclick="arrDeleteClip(<?= $c['clip_id'] ?>, this)">
                         <span class="arr-clip-label"><?= h(basename($c['file_path'] ?? 'Clip #' . $c['clip_id'])) ?></span>
                         <div class="arr-clip-wave">

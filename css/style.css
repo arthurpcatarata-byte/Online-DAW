@@ -1010,3 +1010,67 @@ nav {
 .arr-grid-wrap::-webkit-scrollbar-track { background: var(--bg-primary); }
 .arr-grid-wrap::-webkit-scrollbar-thumb { background: var(--border-bright); border-radius: 4px; }
 .arr-grid-wrap::-webkit-scrollbar-thumb:hover { background: var(--accent); }
+
+/* ── Clip selection highlight ──────────────────────────────── */
+.arr-clip.arr-clip-selected {
+    outline: 2px solid #fff;
+    outline-offset: 2px;
+    box-shadow: 0 0 18px rgba(255,255,255,.35);
+    z-index: 10;
+}
+
+/* ── Context menu ──────────────────────────────────────────── */
+.arr-ctx-menu {
+    position: fixed;
+    z-index: 9999;
+    background: var(--bg-card);
+    border: 1px solid var(--border-bright);
+    border-radius: var(--radius);
+    padding: .35rem 0;
+    min-width: 170px;
+    box-shadow: 0 12px 40px rgba(0,0,0,.65);
+    display: none;
+}
+.arr-ctx-menu.visible { display: block; }
+.arr-ctx-item {
+    display: block;
+    width: 100%;
+    background: none;
+    border: none;
+    color: var(--text-primary);
+    font-size: .875rem;
+    text-align: left;
+    padding: .5rem 1rem;
+    cursor: pointer;
+    transition: background .15s;
+}
+.arr-ctx-item:hover { background: var(--accent-glow); }
+.arr-ctx-sep {
+    height: 1px;
+    background: var(--border);
+    margin: .3rem 0;
+}
+
+/* ── Toast notification ────────────────────────────────────── */
+.arr-toast {
+    position: fixed;
+    bottom: 1.5rem;
+    left: 50%;
+    transform: translateX(-50%) translateY(12px);
+    background: var(--bg-card);
+    border: 1px solid var(--border-bright);
+    color: var(--text-primary);
+    font-size: .875rem;
+    padding: .6rem 1.25rem;
+    border-radius: 999px;
+    box-shadow: 0 8px 28px rgba(0,0,0,.5);
+    opacity: 0;
+    transition: opacity .25s, transform .25s;
+    z-index: 9998;
+    pointer-events: none;
+    white-space: nowrap;
+}
+.arr-toast.arr-toast-visible {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+}

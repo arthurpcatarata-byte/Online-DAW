@@ -31,8 +31,32 @@ if (!$stmt->fetch()) {
 
 $file_path = null;
 
-// Handle optional audio file upload
-if (isset($_FILES['audio_file']) && $_FILES['audio_file']['error'] === UPLOAD_ERR_OK) {
+// Handle existing file path (copy-paste — reuses an audio file already on disk)
+if (!empty($_POST['existing_file_path'])) {
+    $efp = $_POST['existing_file_path'];
+    // Strict path validation: must be uploads/<safe filename>, no traversal
+    if (!preg_match('#^uploads/[\w\-\.]+$#', $efp)) {
+        echo json_encode(['ok' => false, 'error' => 'Invalid file path']); exit;
+    }
+    // Verify the file belongs to a clip owned by this user (ownership check)
+    $chk = $pdo->prepare("
+        SELECT ac.clip_id FROM `AudioClip` ac
+        JOIN `Track` t  ON ac.track_id  = t.track_id
+        JOIN `Project` p ON t.project_id = p.project_id
+        WHERE ac.file_path = ? AND p.user_id = ?
+    ");
+    $chk->execute([$efp, $_SESSION['user_id']]);
+    if (!$chk->fetch()) {
+        echo json_encode(['ok' => false, 'error' => 'File not found']); exit;
+    }
+    if (!file_exists(dirname(__DIR__) . '/' . $efp)) {
+        echo json_encode(['ok' => false, 'error' => 'File not found on disk']); exit;
+    }
+    $file_path = $efp;
+}
+
+// Handle optional audio file upload (only when no existing file is being reused)
+elseif (isset($_FILES['audio_file']) && $_FILES['audio_file']['error'] === UPLOAD_ERR_OK) {
     $allowed_ext = ['mp3','wav','ogg','m4a','aac','flac'];
     $ext         = strtolower(pathinfo($_FILES['audio_file']['name'], PATHINFO_EXTENSION));
     $file_size   = $_FILES['audio_file']['size'];
