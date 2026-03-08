@@ -92,10 +92,13 @@ $tracks = $stmt->fetchAll();
                 <?= count($tracks) ?> track<?= count($tracks) != 1 ? 's' : '' ?>
             </div>
         </div>
-        <button class="btn btn-primary"
-                onclick="document.getElementById('createTrackModal').classList.add('active')">
-            + Add Track
-        </button>
+        <div style="display:flex;gap:.6rem;flex-wrap:wrap;align-items:center;">
+            <a href="arrangement.php?id=<?= $project_id ?>" class="btn btn-cyan">🎛 Arrangement →</a>
+            <button class="btn btn-primary"
+                    onclick="document.getElementById('createTrackModal').classList.add('active')">
+                + Add Track
+            </button>
+        </div>
     </div>
 
     <?php if ($error):   ?><div class="alert alert-error">⚠️ <?= h($error) ?></div><?php endif; ?>

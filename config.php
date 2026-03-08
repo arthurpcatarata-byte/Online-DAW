@@ -27,10 +27,9 @@ try {
         ]
     );
 } catch (PDOException $e) {
-    // TEMPORARY: show real error for debugging
     die('<div style="font-family:sans-serif;padding:2rem;background:#1a1a2e;color:#ff6b6b;">
         <h2>⚠ Database Connection Error</h2>
-        <p>' . htmlspecialchars($e->getMessage()) . '</p>
+        <p>Could not connect to the database. Please check your <code>config.php</code> credentials.</p>
     </div>');
 }
 
