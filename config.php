@@ -7,8 +7,14 @@
 session_start();
 
 // ── Database Credentials ─────────────────────────────────────
-// Fill in these values from your InfinityFree cPanel
-// (MySQL Databases section)
+// Toggle between local and InfinityFree
+// Local (uncomment for localhost testing):
+// define('DB_HOST', 'localhost');
+// define('DB_NAME', 'catarata_daw');
+// define('DB_USER', 'catdaw');
+// define('DB_PASS', 'Catar@ta2026');
+
+// InfinityFree:
 define('DB_HOST', 'sql100.byetcluster.com');
 define('DB_NAME', 'if0_41310365_epiz_12345678_dawdb');
 define('DB_USER', 'if0_41310365');

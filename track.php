@@ -96,7 +96,7 @@ $type = strtolower($track['track_type']);
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title><?= h($track['track_name']) ?> — CatarataDAW</title>
-    <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="css/style.css?v=3">
 </head>
 <body>
 
@@ -324,7 +324,7 @@ const dawClipData = <?= json_encode(array_map(function($c) {
 }, $clips)) ?>;
 const dawMaxTime = <?= json_encode((float)$max_time) ?>;
 </script>
-<script src="js/main.js"></script>
-<script src="js/player.js"></script>
+<script src="js/main.js?v=3"></script>
+<script src="js/player.js?v=3"></script>
 </body>
 </html>

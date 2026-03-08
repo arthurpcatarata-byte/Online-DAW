@@ -92,7 +92,7 @@ foreach ($tracks as $t) {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Arrangement — <?= h($project['project_name']) ?> — CatarataDAW</title>
-    <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="css/style.css?v=3">
 </head>
 <body class="arrangement-body">
 
@@ -326,7 +326,7 @@ const arrProjectId = <?= $project_id ?>;
 const arrMaxTime   = <?= (float)$max_time ?>;
 const arrData      = <?= json_encode($arr_data) ?>;
 </script>
-<script src="js/main.js"></script>
-<script src="js/arrangement.js"></script>
+<script src="js/main.js?v=3"></script>
+<script src="js/arrangement.js?v=3"></script>
 </body>
 </html>

@@ -53,7 +53,7 @@ $total_tracks   = array_sum(array_column($projects, 'track_count'));
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Dashboard — CatarataDAW</title>
-    <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="css/style.css?v=3">
 </head>
 <body>
 
@@ -172,6 +172,6 @@ $total_tracks   = array_sum(array_column($projects, 'track_count'));
     </div>
 </div>
 
-<script src="js/main.js"></script>
+<script src="js/main.js?v=3"></script>
 </body>
 </html>
