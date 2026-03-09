@@ -59,18 +59,23 @@ if (!empty($tracks)) {
     foreach ($stmt->fetchAll() as $clip) {
         $clips_map[$clip['track_id']][] = $clip;
     }
-    // Fetch track settings
-    $stmt = $pdo->prepare("SELECT * FROM `TrackSettings` WHERE track_id IN ($placeholders)");
-    $stmt->execute($track_ids);
-    foreach ($stmt->fetchAll() as $s) {
-        $settings_map[$s['track_id']] = $s;
-    }
+    // Fetch track settings (table may not exist yet)
+    try {
+        $stmt = $pdo->prepare("SELECT * FROM `TrackSettings` WHERE track_id IN ($placeholders)");
+        $stmt->execute($track_ids);
+        foreach ($stmt->fetchAll() as $s) {
+            $settings_map[$s['track_id']] = $s;
+        }
+    } catch (PDOException $e) { /* TrackSettings table not created yet */ }
 }
 
-// Fetch markers
-$stmt = $pdo->prepare("SELECT * FROM `Marker` WHERE project_id=? ORDER BY `time` ASC");
-$stmt->execute([$project_id]);
-$markers = $stmt->fetchAll();
+// Fetch markers (table may not exist yet)
+$markers = [];
+try {
+    $stmt = $pdo->prepare("SELECT * FROM `Marker` WHERE project_id=? ORDER BY `time` ASC");
+    $stmt->execute([$project_id]);
+    $markers = $stmt->fetchAll();
+} catch (PDOException $e) { /* Marker table not created yet */ }
 
 // Compute total timeline length across all clips
 $max_time = 60.0; // minimum 60 s visible
