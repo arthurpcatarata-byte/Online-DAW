@@ -9,7 +9,9 @@ let audioCtx   = null;
 let buffers    = new Map();   // clip_id → AudioBuffer
 let sources    = [];          // active AudioBufferSourceNode[]
 let gainNodes  = new Map();   // track_id → GainNode (for muting)
+let panNodes   = new Map();   // track_id → StereoPannerNode
 let mutedTracks= new Set();
+let soloTracks = new Set();
 let playState  = 'stopped';   // stopped | playing | paused
 let startedAt  = 0;
 let pausedAt   = 0;
@@ -24,8 +26,11 @@ let ctxTrackId    = null;
 let ctxStartTime  = 0;
 
 // Copy-paste state
-let copiedClip    = null;   // { clip_id, duration, file_path, track_id, track_type }
-let selectedClipEl = null;  // currently selected clip DOM element
+let copiedClip    = null;
+let selectedClipEl = null;
+
+// Effects panel state
+let fxTrackId = null;
 
 // ── Init ──────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
@@ -97,19 +102,33 @@ function arrPlay() {
 
     const offset = pausedAt;
     const allClips = arrData.flatMap(t => t.clips.map(c => ({ ...c, track_id: t.track_id })));
+    const hasSolo  = soloTracks.size > 0;
 
     allClips.forEach(clip => {
         const buf = buffers.get(clip.clip_id);
         if (!buf) return;
-        if (mutedTracks.has(clip.track_id)) return;
+
+        const trackMuted = mutedTracks.has(clip.track_id);
+        const trackSoloed = hasSolo && !soloTracks.has(clip.track_id);
+        if (trackMuted || trackSoloed) return;
 
         const clipEnd = clip.start_time + clip.duration;
         if (clipEnd <= offset) return;
 
+        const trackData = arrData.find(t => t.track_id === clip.track_id);
+        const vol = trackData ? trackData.volume : 1.0;
+        const panVal = trackData ? trackData.pan : 0.0;
+
         const gain = audioCtx.createGain();
-        gain.gain.value = 1;
-        gain.connect(audioCtx.destination);
+        gain.gain.value = vol;
+
+        const panner = audioCtx.createStereoPanner();
+        panner.pan.value = panVal;
+
+        gain.connect(panner);
+        panner.connect(audioCtx.destination);
         gainNodes.set(clip.clip_id, gain);
+        panNodes.set(clip.clip_id, panner);
 
         const src = audioCtx.createBufferSource();
         src.buffer = buf;
@@ -610,3 +629,298 @@ function fmtTime(sec) {
 function escHtml(s) {
     return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
+
+// ── Mixer: Volume ─────────────────────────────────────────────
+function arrSetVolume(trackId, value) {
+    const vol = parseFloat(value);
+    const track = arrData.find(t => t.track_id === trackId);
+    if (track) track.volume = vol;
+
+    // Update live gain nodes for clips on this track
+    if (playState === 'playing') {
+        arrData.forEach(t => {
+            if (t.track_id !== trackId) return;
+            t.clips.forEach(c => {
+                const g = gainNodes.get(c.clip_id);
+                if (g) g.gain.value = mutedTracks.has(trackId) ? 0 : vol;
+            });
+        });
+    }
+
+    // Persist (debounced via the browser's input event throttle)
+    const fd = new FormData();
+    fd.append('track_id', trackId);
+    fd.append('volume', vol);
+    fetch('api/track_settings.php', { method: 'POST', body: fd }).catch(() => {});
+}
+
+// ── Mixer: Pan ────────────────────────────────────────────────
+function arrSetPan(trackId, value) {
+    const panVal = parseFloat(value);
+    const track = arrData.find(t => t.track_id === trackId);
+    if (track) track.pan = panVal;
+
+    // Update live panner nodes
+    if (playState === 'playing') {
+        arrData.forEach(t => {
+            if (t.track_id !== trackId) return;
+            t.clips.forEach(c => {
+                const p = panNodes.get(c.clip_id);
+                if (p) p.pan.value = panVal;
+            });
+        });
+    }
+
+    const fd = new FormData();
+    fd.append('track_id', trackId);
+    fd.append('pan', panVal);
+    fetch('api/track_settings.php', { method: 'POST', body: fd }).catch(() => {});
+}
+
+// ── Solo Toggle ───────────────────────────────────────────────
+function arrToggleSolo(trackId, btn) {
+    if (soloTracks.has(trackId)) {
+        soloTracks.delete(trackId);
+        btn.classList.remove('soloed');
+    } else {
+        soloTracks.add(trackId);
+        btn.classList.add('soloed');
+    }
+
+    // Persist solo state
+    const fd = new FormData();
+    fd.append('track_id', trackId);
+    fd.append('is_solo', soloTracks.has(trackId) ? 1 : 0);
+    fetch('api/track_settings.php', { method: 'POST', body: fd }).catch(() => {});
+
+    // If currently playing, restart to apply solo routing
+    if (playState === 'playing') {
+        const currentTime = audioCtx.currentTime - startedAt;
+        stopAllSources();
+        pausedAt = currentTime;
+        playState = 'paused';
+        arrPlay();
+    }
+}
+
+// ── Effects Panel ─────────────────────────────────────────────
+async function openEffectsPanel(trackId) {
+    fxTrackId = trackId;
+    document.getElementById('effectsModal').classList.add('active');
+    document.getElementById('fx-chain-list').innerHTML = 'Loading...';
+
+    try {
+        const res = await fetch(`api/track_effects.php?track_id=${trackId}`);
+        const data = await res.json();
+        if (!data.ok) { document.getElementById('fx-chain-list').innerHTML = 'Error loading effects'; return; }
+
+        // Populate available effects dropdown
+        const sel = document.getElementById('fx-select');
+        sel.innerHTML = '';
+        data.available.forEach(fx => {
+            const opt = document.createElement('option');
+            opt.value = fx.effect_id;
+            opt.textContent = fx.effect_name;
+            sel.appendChild(opt);
+        });
+
+        // Render current chain
+        renderFxChain(data.chain);
+    } catch(e) {
+        document.getElementById('fx-chain-list').innerHTML = 'Failed to load effects.';
+    }
+}
+
+function renderFxChain(chain) {
+    const list = document.getElementById('fx-chain-list');
+    if (!chain || chain.length === 0) {
+        list.innerHTML = '<em>No effects on this track.</em>';
+        return;
+    }
+    list.innerHTML = chain.map((fx, i) => `
+        <div style="display:flex;align-items:center;gap:.5rem;padding:.4rem .6rem;background:var(--bg-card);border:1px solid var(--border);border-radius:6px;margin-bottom:.4rem;">
+            <span style="color:var(--accent-light);font-weight:600;">${i+1}.</span>
+            <span style="flex:1;">${escHtml(fx.effect_name)}</span>
+            <span style="font-size:.75rem;color:var(--text-muted);">Mix: ${Math.round(fx.mix * 100)}%</span>
+            <button class="btn btn-secondary btn-sm" style="padding:.15rem .5rem;font-size:.7rem;"
+                    onclick="removeEffect(${fx.track_effect_id})">✕</button>
+        </div>
+    `).join('');
+}
+
+async function addEffect() {
+    if (!fxTrackId) return;
+    const effectId = document.getElementById('fx-select').value;
+    if (!effectId) return;
+
+    const fd = new FormData();
+    fd.append('track_id', fxTrackId);
+    fd.append('action', 'add');
+    fd.append('effect_id', effectId);
+
+    try {
+        const res = await fetch('api/track_effects.php', { method: 'POST', body: fd });
+        const data = await res.json();
+        if (data.ok) {
+            openEffectsPanel(fxTrackId); // reload
+        } else {
+            alert('Error: ' + (data.error || 'Unknown'));
+        }
+    } catch(e) {
+        console.warn('addEffect error:', e);
+    }
+}
+
+async function removeEffect(trackEffectId) {
+    const fd = new FormData();
+    fd.append('track_id', fxTrackId);
+    fd.append('action', 'remove');
+    fd.append('track_effect_id', trackEffectId);
+
+    try {
+        const res = await fetch('api/track_effects.php', { method: 'POST', body: fd });
+        const data = await res.json();
+        if (data.ok) {
+            openEffectsPanel(fxTrackId); // reload
+        }
+    } catch(e) {
+        console.warn('removeEffect error:', e);
+    }
+}
+
+// ── Export Project (Offline Render) ───────────────────────────
+async function arrExportProject() {
+    const statusEl = document.getElementById('export-status');
+    const btn      = document.getElementById('export-btn');
+    btn.disabled = true;
+    statusEl.textContent = 'Rendering...';
+
+    try {
+        const sampleRate = audioCtx.sampleRate;
+        const length     = Math.ceil(arrMaxTime * sampleRate);
+        const offCtx     = new OfflineAudioContext(2, length, sampleRate);
+
+        const hasSolo = soloTracks.size > 0;
+        const allClips = arrData.flatMap(t => t.clips.map(c => ({ ...c, track_id: t.track_id })));
+
+        allClips.forEach(clip => {
+            const buf = buffers.get(clip.clip_id);
+            if (!buf) return;
+            if (mutedTracks.has(clip.track_id)) return;
+            if (hasSolo && !soloTracks.has(clip.track_id)) return;
+
+            const trackData = arrData.find(t => t.track_id === clip.track_id);
+            const vol    = trackData ? trackData.volume : 1.0;
+            const panVal = trackData ? trackData.pan : 0.0;
+
+            const gain   = offCtx.createGain();
+            gain.gain.value = vol;
+            const panner = offCtx.createStereoPanner();
+            panner.pan.value = panVal;
+            gain.connect(panner);
+            panner.connect(offCtx.destination);
+
+            const src = offCtx.createBufferSource();
+            src.buffer = buf;
+            src.connect(gain);
+            src.start(clip.start_time, 0, clip.duration);
+        });
+
+        statusEl.textContent = 'Rendering audio...';
+        const rendered = await offCtx.startRendering();
+
+        statusEl.textContent = 'Encoding WAV...';
+        const wav = encodeWAV(rendered);
+        const blob = new Blob([wav], { type: 'audio/wav' });
+
+        // Download
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'CatarataDAW_Export.wav';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+
+        // Log export
+        const fd = new FormData();
+        fd.append('project_id', arrProjectId);
+        fd.append('format', 'wav');
+        fd.append('file_size', blob.size);
+        fetch('api/export_log.php', { method: 'POST', body: fd }).catch(() => {});
+
+        statusEl.textContent = '✅ Export complete! File downloaded.';
+    } catch(e) {
+        console.error('Export error:', e);
+        statusEl.textContent = '❌ Export failed: ' + e.message;
+    } finally {
+        btn.disabled = false;
+    }
+}
+
+function encodeWAV(audioBuffer) {
+    const numCh  = audioBuffer.numberOfChannels;
+    const length = audioBuffer.length;
+    const sr     = audioBuffer.sampleRate;
+    const bitsPerSample = 16;
+    const bytesPerSample = bitsPerSample / 8;
+    const blockAlign     = numCh * bytesPerSample;
+    const byteRate       = sr * blockAlign;
+    const dataSize       = length * blockAlign;
+
+    const buffer = new ArrayBuffer(44 + dataSize);
+    const view   = new DataView(buffer);
+
+    // WAV header
+    writeStr(view, 0, 'RIFF');
+    view.setUint32(4, 36 + dataSize, true);
+    writeStr(view, 8, 'WAVE');
+    writeStr(view, 12, 'fmt ');
+    view.setUint32(16, 16, true);
+    view.setUint16(20, 1, true); // PCM
+    view.setUint16(22, numCh, true);
+    view.setUint32(24, sr, true);
+    view.setUint32(28, byteRate, true);
+    view.setUint16(32, blockAlign, true);
+    view.setUint16(34, bitsPerSample, true);
+    writeStr(view, 36, 'data');
+    view.setUint32(40, dataSize, true);
+
+    // Interleave channels
+    const channels = [];
+    for (let ch = 0; ch < numCh; ch++) channels.push(audioBuffer.getChannelData(ch));
+
+    let offset = 44;
+    for (let i = 0; i < length; i++) {
+        for (let ch = 0; ch < numCh; ch++) {
+            let sample = Math.max(-1, Math.min(1, channels[ch][i]));
+            sample = sample < 0 ? sample * 0x8000 : sample * 0x7FFF;
+            view.setInt16(offset, sample, true);
+            offset += 2;
+        }
+    }
+    return buffer;
+}
+
+function writeStr(view, offset, str) {
+    for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i));
+}
+
+// ── Init muted/solo state from server data ────────────────────
+(function initMixerState() {
+    arrData.forEach(t => {
+        if (t.is_muted) {
+            mutedTracks.add(t.track_id);
+            const btn = document.querySelector(`.arr-track-header[data-track="${t.track_id}"] .arr-mute-btn`);
+            if (btn) btn.classList.add('muted');
+            const row = document.getElementById(`arr-row-${t.track_id}`);
+            if (row) row.classList.toggle('arr-row-muted', true);
+        }
+        if (t.is_solo) {
+            soloTracks.add(t.track_id);
+            const btn = document.querySelector(`.arr-track-header[data-track="${t.track_id}"] .arr-solo-btn`);
+            if (btn) btn.classList.add('soloed');
+        }
+    });
+})();

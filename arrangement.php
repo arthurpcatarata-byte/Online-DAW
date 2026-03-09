@@ -50,6 +50,7 @@ $tracks = $stmt->fetchAll();
 
 // Build clips map: track_id → [clips]
 $clips_map = [];
+$settings_map = [];
 if (!empty($tracks)) {
     $track_ids   = array_column($tracks, 'track_id');
     $placeholders = implode(',', array_fill(0, count($track_ids), '?'));
@@ -58,7 +59,18 @@ if (!empty($tracks)) {
     foreach ($stmt->fetchAll() as $clip) {
         $clips_map[$clip['track_id']][] = $clip;
     }
+    // Fetch track settings
+    $stmt = $pdo->prepare("SELECT * FROM `TrackSettings` WHERE track_id IN ($placeholders)");
+    $stmt->execute($track_ids);
+    foreach ($stmt->fetchAll() as $s) {
+        $settings_map[$s['track_id']] = $s;
+    }
 }
+
+// Fetch markers
+$stmt = $pdo->prepare("SELECT * FROM `Marker` WHERE project_id=? ORDER BY `time` ASC");
+$stmt->execute([$project_id]);
+$markers = $stmt->fetchAll();
 
 // Compute total timeline length across all clips
 $max_time = 60.0; // minimum 60 s visible
@@ -73,10 +85,15 @@ foreach ($clips_map as $tclips) {
 $arr_data = [];
 foreach ($tracks as $t) {
     $tclips = $clips_map[$t['track_id']] ?? [];
+    $s = $settings_map[$t['track_id']] ?? ['volume'=>1.0,'pan'=>0.0,'is_muted'=>0,'is_solo'=>0];
     $arr_data[] = [
         'track_id'   => $t['track_id'],
         'track_name' => $t['track_name'],
         'track_type' => $t['track_type'],
+        'volume'     => (float)$s['volume'],
+        'pan'        => (float)$s['pan'],
+        'is_muted'   => (bool)$s['is_muted'],
+        'is_solo'    => (bool)$s['is_solo'],
         'clips'      => array_map(fn($c) => [
             'clip_id'    => $c['clip_id'],
             'start_time' => (float)$c['start_time'],
@@ -85,6 +102,12 @@ foreach ($tracks as $t) {
         ], $tclips),
     ];
 }
+$markers_json = array_map(fn($m) => [
+    'marker_id' => $m['marker_id'],
+    'time'      => (float)$m['time'],
+    'label'     => $m['label'],
+    'color'     => $m['color'],
+], $markers);
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -92,7 +115,7 @@ foreach ($tracks as $t) {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Arrangement — <?= h($project['project_name']) ?> — CatarataDAW</title>
-    <link rel="stylesheet" href="css/style.css?v=3">
+    <link rel="stylesheet" href="css/style.css?v=4">
 </head>
 <body class="arrangement-body">
 
@@ -102,6 +125,8 @@ foreach ($tracks as $t) {
         <li><a href="dashboard.php">📁 Projects</a></li>
         <li><a href="project.php?id=<?= $project_id ?>">📂 Tracks</a></li>
         <li><span style="color:var(--accent-light);font-size:.82rem;font-weight:700;">🎛 Arrangement</span></li>
+        <li><a href="samples.php">🎵 Samples</a></li>
+        <li><a href="profile.php">👤 Profile</a></li>
         <li><a href="logout.php">Sign Out</a></li>
     </ul>
 </nav>
@@ -131,10 +156,31 @@ foreach ($tracks as $t) {
                 <div class="arr-track-info">
                     <div class="arr-track-name"><?= h($t['track_name']) ?></div>
                     <span class="track-type-badge badge-<?= h($type) ?>"><?= h($t['track_type']) ?></span>
+                    <!-- Mixer controls -->
+                    <div class="arr-mixer-controls">
+                        <label class="mixer-label" title="Volume">🔊
+                            <input type="range" min="0" max="2" step="0.01"
+                                   value="<?= $settings_map[$t['track_id']]['volume'] ?? 1.0 ?>"
+                                   class="mixer-slider mixer-vol"
+                                   data-track="<?= $t['track_id'] ?>"
+                                   oninput="arrSetVolume(<?= $t['track_id'] ?>, this.value)">
+                        </label>
+                        <label class="mixer-label" title="Pan (L/R)">⇔
+                            <input type="range" min="-1" max="1" step="0.01"
+                                   value="<?= $settings_map[$t['track_id']]['pan'] ?? 0.0 ?>"
+                                   class="mixer-slider mixer-pan"
+                                   data-track="<?= $t['track_id'] ?>"
+                                   oninput="arrSetPan(<?= $t['track_id'] ?>, this.value)">
+                        </label>
+                    </div>
                 </div>
                 <div class="arr-track-actions">
                     <button class="arr-mute-btn" title="Mute track"
                             onclick="arrToggleMute(<?= $t['track_id'] ?>, this)">M</button>
+                    <button class="arr-solo-btn" title="Solo track"
+                            onclick="arrToggleSolo(<?= $t['track_id'] ?>, this)">S</button>
+                    <button class="arr-fx-btn" title="Effects"
+                            onclick="openEffectsPanel(<?= $t['track_id'] ?>)">FX</button>
                     <form method="POST" style="display:inline;"
                           onsubmit="return confirm('Delete track and all its clips?')">
                         <input type="hidden" name="action"   value="delete_track">
@@ -158,8 +204,10 @@ foreach ($tracks as $t) {
                 <button class="transport-btn" id="arr-pause" title="Pause" disabled>⏸</button>
                 <button class="transport-btn" id="arr-stop"  title="Stop"  disabled>⏹</button>
                 <div class="transport-time" id="arr-time">00:00.00</div>
+                <span style="color:var(--text-muted);font-size:.72rem;margin-left:.5rem;">♩ <?= $project['bpm'] ?? 120 ?> BPM</span>
             </div>
             <div class="arr-transport-right">
+                <button class="btn btn-secondary btn-sm" onclick="document.getElementById('exportModal').classList.add('active')" title="Export project">📤 Export</button>
                 <span id="arr-load-status" class="transport-load-text">Loading samples...</span>
                 <div class="transport-load-bar" style="width:160px;">
                     <div class="transport-load-progress" id="arr-progress"></div>
@@ -175,6 +223,12 @@ foreach ($tracks as $t) {
                     <?= sprintf('%d:%02d', floor($i/60), $i%60) ?>
                 </div>
                 <?php endfor; ?>
+                <?php foreach ($markers as $m): ?>
+                <div class="arr-marker" style="left:<?= round($m['time'] / $max_time * 100, 4) ?>%;--marker-color:<?= h($m['color']) ?>"
+                     title="<?= h($m['label']) ?> @ <?= formatTime($m['time']) ?>">
+                    <span class="arr-marker-label"><?= h($m['label']) ?></span>
+                </div>
+                <?php endforeach; ?>
             </div>
         </div>
 
@@ -326,8 +380,50 @@ foreach ($tracks as $t) {
 const arrProjectId = <?= $project_id ?>;
 const arrMaxTime   = <?= (float)$max_time ?>;
 const arrData      = <?= json_encode($arr_data) ?>;
+const arrMarkers   = <?= json_encode($markers_json) ?>;
+const arrBpm       = <?= (int)($project['bpm'] ?? 120) ?>;
 </script>
-<script src="js/main.js?v=3"></script>
-<script src="js/arrangement.js?v=3"></script>
+
+<!-- Effects Panel Modal -->
+<div class="modal-overlay" id="effectsModal" onclick="if(event.target===this)this.classList.remove('active')">
+    <div class="modal">
+        <div class="modal-header">
+            <h2>🎛 Effects Chain</h2>
+            <button class="modal-close" onclick="document.getElementById('effectsModal').classList.remove('active')">✕</button>
+        </div>
+        <div id="fx-chain-list" style="margin-bottom:1rem;color:var(--text-secondary);font-size:.85rem;">Loading...</div>
+        <div class="form-group">
+            <label>Add Effect</label>
+            <div style="display:flex;gap:.5rem;">
+                <select id="fx-select" style="flex:1;"></select>
+                <button class="btn btn-primary btn-sm" onclick="addEffect()">+ Add</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Export Modal -->
+<div class="modal-overlay" id="exportModal" onclick="if(event.target===this)this.classList.remove('active')">
+    <div class="modal">
+        <div class="modal-header">
+            <h2>📤 Export Project</h2>
+            <button class="modal-close" onclick="document.getElementById('exportModal').classList.remove('active')">✕</button>
+        </div>
+        <p style="color:var(--text-secondary);font-size:.85rem;margin-bottom:1rem;">
+            Export renders the arrangement using the Web Audio API offline renderer and downloads it as a WAV file.
+        </p>
+        <div class="form-group">
+            <label>Format</label>
+            <select id="export-format">
+                <option value="wav">WAV (uncompressed)</option>
+            </select>
+        </div>
+        <button class="btn btn-primary" id="export-btn" onclick="arrExportProject()">📤 Export & Download</button>
+        <div id="export-status" style="margin-top:.8rem;font-size:.85rem;color:var(--text-muted);"></div>
+    </div>
+</div>
+
+<script src="js/main.js?v=4"></script>
+<script src="js/arrangement.js?v=4"></script>
 </body>
 </html>

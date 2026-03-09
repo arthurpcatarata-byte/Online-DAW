@@ -15,8 +15,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'creat
     } elseif (strlen($project_name) > 100) {
         $error = 'Project name too long (max 100 characters).';
     } else {
-        $stmt = $pdo->prepare("INSERT INTO `Project` (user_id, project_name, created_date) VALUES (?, ?, CURDATE())");
-        $stmt->execute([$user_id, $project_name]);
+        $bpm          = max(20, min(300, (int)($_POST['bpm'] ?? 120)));
+        $time_sig_num = max(1, min(16, (int)($_POST['time_sig_num'] ?? 4)));
+        $time_sig_den = in_array((int)($_POST['time_sig_den'] ?? 4), [2,4,8,16]) ? (int)$_POST['time_sig_den'] : 4;
+        $musical_key  = trim($_POST['musical_key'] ?? '');
+        if (strlen($musical_key) > 10) $musical_key = '';
+
+        $stmt = $pdo->prepare("INSERT INTO `Project` (user_id, project_name, created_date, bpm, time_sig_num, time_sig_den, musical_key) VALUES (?, ?, CURDATE(), ?, ?, ?, ?)");
+        $stmt->execute([$user_id, $project_name, $bpm, $time_sig_num, $time_sig_den, $musical_key ?: null]);
         $success = 'Project "' . h($project_name) . '" created!';
     }
 }
@@ -60,7 +66,8 @@ $total_tracks   = array_sum(array_column($projects, 'track_count'));
 <nav>
     <a href="dashboard.php" class="nav-logo">CatarataDAW</a>
     <ul class="nav-links">
-        <li><span style="color:var(--text-secondary);font-size:.85rem;">👤 <?= h($username) ?></span></li>
+        <li><a href="samples.php">🎵 Samples</a></li>
+        <li><a href="profile.php">👤 <?= h($username) ?></a></li>
         <li><a href="logout.php">Sign Out</a></li>
     </ul>
 </nav>
@@ -119,6 +126,11 @@ $total_tracks   = array_sum(array_column($projects, 'track_count'));
                             <?= h($p['project_name']) ?>
                         </a>
                         <div class="project-date">📅 <?= h($p['created_date']) ?></div>
+                        <div style="font-size:.72rem;color:var(--text-muted);margin-top:.2rem;">
+                            ♩ <?= $p['bpm'] ?? 120 ?> BPM
+                            · <?= $p['time_sig_num'] ?? 4 ?>/<?= $p['time_sig_den'] ?? 4 ?>
+                            <?php if (!empty($p['musical_key'])): ?> · 🎵 <?= h($p['musical_key']) ?><?php endif; ?>
+                        </div>
                     </div>
                 </div>
                 <div class="project-meta">
@@ -160,6 +172,37 @@ $total_tracks   = array_sum(array_column($projects, 'track_count'));
                 <input type="text" id="project_name" name="project_name"
                        placeholder="e.g. Summer EP, Beat Pack Vol.1"
                        required maxlength="100">
+            </div>
+            <div style="display:flex;gap:.8rem;flex-wrap:wrap;">
+                <div class="form-group" style="flex:1;min-width:80px;">
+                    <label>BPM</label>
+                    <input type="number" name="bpm" value="120" min="20" max="300">
+                </div>
+                <div class="form-group" style="flex:1;min-width:80px;">
+                    <label>Time Sig</label>
+                    <div style="display:flex;gap:.3rem;align-items:center;">
+                        <input type="number" name="time_sig_num" value="4" min="1" max="16" style="width:50px;">
+                        <span>/</span>
+                        <select name="time_sig_den" style="width:55px;">
+                            <option value="2">2</option>
+                            <option value="4" selected>4</option>
+                            <option value="8">8</option>
+                            <option value="16">16</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="form-group" style="flex:1;min-width:80px;">
+                    <label>Key</label>
+                    <select name="musical_key">
+                        <option value="">None</option>
+                        <option>C</option><option>C#</option><option>D</option><option>D#</option>
+                        <option>E</option><option>F</option><option>F#</option><option>G</option>
+                        <option>G#</option><option>A</option><option>A#</option><option>B</option>
+                        <option>Cm</option><option>C#m</option><option>Dm</option><option>D#m</option>
+                        <option>Em</option><option>Fm</option><option>F#m</option><option>Gm</option>
+                        <option>G#m</option><option>Am</option><option>A#m</option><option>Bm</option>
+                    </select>
+                </div>
             </div>
             <div style="display:flex;gap:.8rem;justify-content:flex-end;margin-top:1.5rem;">
                 <button type="button" class="btn btn-secondary"

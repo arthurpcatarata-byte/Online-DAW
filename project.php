@@ -71,6 +71,8 @@ $tracks = $stmt->fetchAll();
     <a href="dashboard.php" class="nav-logo">CatarataDAW</a>
     <ul class="nav-links">
         <li><a href="dashboard.php">📁 Projects</a></li>
+        <li><a href="samples.php">🎵 Samples</a></li>
+        <li><a href="profile.php">👤 Profile</a></li>
         <li><a href="logout.php">Sign Out</a></li>
     </ul>
 </nav>
@@ -90,10 +92,20 @@ $tracks = $stmt->fetchAll();
                 Created <?= h($project['created_date']) ?>
                 &nbsp;·&nbsp;
                 <?= count($tracks) ?> track<?= count($tracks) != 1 ? 's' : '' ?>
+                &nbsp;·&nbsp;
+                ♩ <?= $project['bpm'] ?? 120 ?> BPM
+                &nbsp;·&nbsp;
+                <?= $project['time_sig_num'] ?? 4 ?>/<?= $project['time_sig_den'] ?? 4 ?>
+                <?php if (!empty($project['musical_key'])): ?>
+                    &nbsp;·&nbsp; 🎵 <?= h($project['musical_key']) ?>
+                <?php endif; ?>
             </div>
         </div>
         <div style="display:flex;gap:.6rem;flex-wrap:wrap;align-items:center;">
             <a href="arrangement.php?id=<?= $project_id ?>" class="btn btn-cyan">🎛 Arrangement →</a>
+            <button class="btn btn-secondary" onclick="document.getElementById('collabModal').classList.add('active')">👥 Share</button>
+            <button class="btn btn-secondary" onclick="document.getElementById('snapshotModal').classList.add('active')">📸 Snapshots</button>
+            <button class="btn btn-secondary" onclick="document.getElementById('markerModal').classList.add('active')">🏷 Markers</button>
             <button class="btn btn-primary"
                     onclick="document.getElementById('createTrackModal').classList.add('active')">
                 + Add Track
@@ -195,6 +207,205 @@ $tracks = $stmt->fetchAll();
     </div>
 </div>
 
-<script src="js/main.js?v=3"></script>
+<script src="js/main.js?v=4"></script>
+
+<!-- Collaboration Modal -->
+<div class="modal-overlay" id="collabModal" onclick="if(event.target===this)this.classList.remove('active')">
+    <div class="modal">
+        <div class="modal-header">
+            <h2>👥 Collaborators</h2>
+            <button class="modal-close" onclick="document.getElementById('collabModal').classList.remove('active')">✕</button>
+        </div>
+        <div id="collab-list" style="margin-bottom:1rem;color:var(--text-secondary);font-size:.85rem;">Loading...</div>
+        <form onsubmit="addCollaborator(event)">
+            <div class="form-group">
+                <label>Add by Username or Email</label>
+                <input type="text" id="collab-identifier" placeholder="username or email" required>
+            </div>
+            <div class="form-group">
+                <label>Role</label>
+                <select id="collab-role">
+                    <option value="viewer">Viewer</option>
+                    <option value="editor">Editor</option>
+                </select>
+            </div>
+            <button type="submit" class="btn btn-primary btn-sm">Add →</button>
+        </form>
+    </div>
+</div>
+
+<!-- Snapshot Modal -->
+<div class="modal-overlay" id="snapshotModal" onclick="if(event.target===this)this.classList.remove('active')">
+    <div class="modal">
+        <div class="modal-header">
+            <h2>📸 Version Snapshots</h2>
+            <button class="modal-close" onclick="document.getElementById('snapshotModal').classList.remove('active')">✕</button>
+        </div>
+        <div id="snapshot-list" style="margin-bottom:1rem;color:var(--text-secondary);font-size:.85rem;">Loading...</div>
+        <form onsubmit="createSnapshot(event)">
+            <div class="form-group">
+                <label>Snapshot Name</label>
+                <input type="text" id="snapshot-name" placeholder="e.g. Before remix" maxlength="100">
+            </div>
+            <button type="submit" class="btn btn-primary btn-sm">💾 Save Snapshot →</button>
+        </form>
+    </div>
+</div>
+
+<!-- Marker Modal -->
+<div class="modal-overlay" id="markerModal" onclick="if(event.target===this)this.classList.remove('active')">
+    <div class="modal">
+        <div class="modal-header">
+            <h2>🏷 Timeline Markers</h2>
+            <button class="modal-close" onclick="document.getElementById('markerModal').classList.remove('active')">✕</button>
+        </div>
+        <div id="marker-list" style="margin-bottom:1rem;color:var(--text-secondary);font-size:.85rem;">Loading...</div>
+        <form onsubmit="addMarker(event)">
+            <div style="display:flex;gap:.6rem;flex-wrap:wrap;">
+                <div class="form-group" style="flex:2;min-width:120px;">
+                    <label>Label</label>
+                    <input type="text" id="marker-label" placeholder="e.g. Chorus" required maxlength="100">
+                </div>
+                <div class="form-group" style="flex:1;min-width:80px;">
+                    <label>Time (s)</label>
+                    <input type="number" id="marker-time" min="0" step="0.25" value="0">
+                </div>
+                <div class="form-group" style="flex:0;min-width:50px;">
+                    <label>Color</label>
+                    <input type="color" id="marker-color" value="#f59e0b" style="height:38px;">
+                </div>
+            </div>
+            <button type="submit" class="btn btn-primary btn-sm">Add Marker →</button>
+        </form>
+    </div>
+</div>
+
+<script>
+const projectId = <?= $project_id ?>;
+
+// -- Collaborators
+function loadCollaborators() {
+    fetch('api/collaborators.php?project_id=' + projectId)
+        .then(r => r.json())
+        .then(d => {
+            if (!d.ok) { document.getElementById('collab-list').textContent = 'Error loading'; return; }
+            const el = document.getElementById('collab-list');
+            if (!d.collaborators.length) { el.textContent = 'No collaborators yet.'; return; }
+            el.innerHTML = d.collaborators.map(c =>
+                `<div style="display:flex;justify-content:space-between;align-items:center;padding:.4rem 0;border-bottom:1px solid var(--border);">
+                    <span>👤 ${c.username} <span style="opacity:.6;">(${c.role})</span></span>
+                    <button class="btn btn-danger btn-sm" onclick="removeCollab(${c.collab_id})">✕</button>
+                </div>`
+            ).join('');
+        });
+}
+function addCollaborator(e) {
+    e.preventDefault();
+    const fd = new FormData();
+    fd.append('action', 'add');
+    fd.append('project_id', projectId);
+    fd.append('identifier', document.getElementById('collab-identifier').value);
+    fd.append('role', document.getElementById('collab-role').value);
+    fetch('api/collaborators.php', { method: 'POST', body: fd })
+        .then(r => r.json())
+        .then(d => { if (d.ok) { document.getElementById('collab-identifier').value = ''; loadCollaborators(); } else alert(d.error); });
+}
+function removeCollab(id) {
+    if (!confirm('Remove collaborator?')) return;
+    const fd = new FormData();
+    fd.append('action', 'remove'); fd.append('project_id', projectId); fd.append('collab_id', id);
+    fetch('api/collaborators.php', { method: 'POST', body: fd }).then(() => loadCollaborators());
+}
+document.getElementById('collabModal').addEventListener('transitionend', loadCollaborators);
+document.getElementById('collabModal').addEventListener('click', function(e) { if (e.target === this) return; loadCollaborators(); }, { once: true });
+
+// -- Snapshots
+function loadSnapshots() {
+    fetch('api/snapshots.php?project_id=' + projectId)
+        .then(r => r.json())
+        .then(d => {
+            const el = document.getElementById('snapshot-list');
+            if (!d.ok || !d.snapshots.length) { el.textContent = 'No snapshots yet.'; return; }
+            el.innerHTML = d.snapshots.map(s =>
+                `<div style="display:flex;justify-content:space-between;align-items:center;padding:.4rem 0;border-bottom:1px solid var(--border);">
+                    <span>📸 ${s.snapshot_name} <span style="opacity:.6;font-size:.75rem;">(${s.clip_count} clips · ${s.created_at})</span></span>
+                    <div style="display:flex;gap:.3rem;">
+                        <button class="btn btn-secondary btn-sm" onclick="restoreSnapshot(${s.snapshot_id})">Restore</button>
+                        <button class="btn btn-danger btn-sm" onclick="deleteSnapshot(${s.snapshot_id})">✕</button>
+                    </div>
+                </div>`
+            ).join('');
+        });
+}
+function createSnapshot(e) {
+    e.preventDefault();
+    const fd = new FormData();
+    fd.append('action', 'create'); fd.append('project_id', projectId);
+    fd.append('snapshot_name', document.getElementById('snapshot-name').value || 'Snapshot');
+    fetch('api/snapshots.php', { method: 'POST', body: fd })
+        .then(r => r.json())
+        .then(d => { if (d.ok) { document.getElementById('snapshot-name').value = ''; loadSnapshots(); } else alert(d.error); });
+}
+function restoreSnapshot(id) {
+    if (!confirm('Restore this snapshot? Current clips will be replaced.')) return;
+    const fd = new FormData();
+    fd.append('action', 'restore'); fd.append('project_id', projectId); fd.append('snapshot_id', id);
+    fetch('api/snapshots.php', { method: 'POST', body: fd })
+        .then(r => r.json())
+        .then(d => { if (d.ok) location.reload(); else alert(d.error); });
+}
+function deleteSnapshot(id) {
+    if (!confirm('Delete this snapshot?')) return;
+    const fd = new FormData();
+    fd.append('action', 'delete'); fd.append('project_id', projectId); fd.append('snapshot_id', id);
+    fetch('api/snapshots.php', { method: 'POST', body: fd }).then(() => loadSnapshots());
+}
+
+// -- Markers
+function loadMarkers() {
+    fetch('api/markers.php?project_id=' + projectId)
+        .then(r => r.json())
+        .then(d => {
+            const el = document.getElementById('marker-list');
+            if (!d.ok || !d.markers.length) { el.textContent = 'No markers yet.'; return; }
+            el.innerHTML = d.markers.map(m =>
+                `<div style="display:flex;justify-content:space-between;align-items:center;padding:.4rem 0;border-bottom:1px solid var(--border);">
+                    <span><span style="display:inline-block;width:12px;height:12px;border-radius:50%;background:${m.color};vertical-align:middle;"></span> ${m.label} <span style="opacity:.6;font-size:.75rem;">@ ${Number(m.time).toFixed(2)}s</span></span>
+                    <button class="btn btn-danger btn-sm" onclick="deleteMarker(${m.marker_id})">✕</button>
+                </div>`
+            ).join('');
+        });
+}
+function addMarker(e) {
+    e.preventDefault();
+    const fd = new FormData();
+    fd.append('action', 'add'); fd.append('project_id', projectId);
+    fd.append('label', document.getElementById('marker-label').value);
+    fd.append('time', document.getElementById('marker-time').value);
+    fd.append('color', document.getElementById('marker-color').value);
+    fetch('api/markers.php', { method: 'POST', body: fd })
+        .then(r => r.json())
+        .then(d => { if (d.ok) { document.getElementById('marker-label').value = ''; loadMarkers(); } else alert(d.error); });
+}
+function deleteMarker(id) {
+    if (!confirm('Delete this marker?')) return;
+    const fd = new FormData();
+    fd.append('action', 'delete'); fd.append('project_id', projectId); fd.append('marker_id', id);
+    fetch('api/markers.php', { method: 'POST', body: fd }).then(() => loadMarkers());
+}
+
+// Auto-load when modals first open
+['snapshotModal','markerModal','collabModal'].forEach(id => {
+    const el = document.getElementById(id);
+    const observer = new MutationObserver(() => {
+        if (el.classList.contains('active')) {
+            if (id === 'collabModal')  loadCollaborators();
+            if (id === 'snapshotModal') loadSnapshots();
+            if (id === 'markerModal')   loadMarkers();
+        }
+    });
+    observer.observe(el, { attributes: true, attributeFilter: ['class'] });
+});
+</script>
 </body>
 </html>
